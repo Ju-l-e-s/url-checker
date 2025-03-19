@@ -9,6 +9,8 @@ venv/
 .idea/
 .vscode/
 
-# Fichiers système Mac
 # Mac System files
 .DS_Store
+
+# Environment variables
+.env
