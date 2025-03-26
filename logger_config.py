@@ -1,79 +1,54 @@
 import logging
-import logging.handlers
+import sys
+from pathlib import Path
 
 
-class CustomFormatter(logging.Formatter):
+def setup_logger(verbose=True):
     """
-    Custom formatter with color support for console output.
+    Configure logging for the phishing detector.
 
-    Colors are applied based on the log level.
-
-    :param fmt: The format string.
-    :type fmt: str
-    :param datefmt: The date format string.
-    :type datefmt: str or None
+    :param verbose: Whether to enable verbose output (DEBUG level)
+    :type verbose: bool
+    :return: None
     """
-    # ANSI escape sequences for colors
-    grey = "\x1b[38;21m"
-    green = "\x1b[32;21m"
-    yellow = "\x1b[33;21m"
-    red = "\x1b[31;21m"
-    bold_red = "\x1b[31;1m"
-    reset = "\x1b[0m"
+    # Create the logs directory if it doesn't exist
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
 
-    FORMATS = {
-        logging.DEBUG: grey + "%(asctime)s - %(levelname)s - %(funcName)s - %(message)s" + reset,
-        logging.INFO: green + "%(asctime)s - %(levelname)s - %(funcName)s - %(message)s" + reset,
-        logging.WARNING: yellow + "%(asctime)s - %(levelname)s - %(funcName)s - %(message)s" + reset,
-        logging.ERROR: red + "%(asctime)s - %(levelname)s - %(funcName)s - %(message)s" + reset,
-        logging.CRITICAL: bold_red + "%(asctime)s - %(levelname)s - %(funcName)s - %(message)s" + reset
-    }
+    # Configure the log level based on the verbose flag
+    root_level = logging.DEBUG if verbose else logging.INFO
+    file_level = logging.DEBUG  # Always log details to the file
 
-    def format(self, record):
-        # Choisir le format en fonction du niveau de log
-        log_fmt = self.FORMATS.get(record.levelno)
-        formatter = logging.Formatter(log_fmt, "%Y-%m-%d %H:%M:%S")
-        # Si le décorateur a passé 'real_func', utilisez-le pour le champ funcName
-        if hasattr(record, 'real_func'):
-            record.funcName = record.real_func
-        return formatter.format(record)
+    # Configure the root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(root_level)
 
+    # Remove existing handlers to avoid duplicates
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
 
-_logger = None
-
-
-def setup_logger(log_file: str = 'phishing_detector.log') -> logging.Logger:
-    """
-    Set up and return a configured logger for the phishing detector application.
-    The configuration is applied only once.
-
-    :param log_file: The filename for the log file
-    :type log_file: str
-    :return: A configured logger instance
-    :rtype: logging.Logger
-    """
-    global _logger
-    if _logger is not None:
-        return _logger
-
-    logger = logging.getLogger("phishing_detector")
-    logger.setLevel(logging.DEBUG)
-
-    # File handler: format classique sans couleurs
-    file_formatter = logging.Formatter(
-        "%(asctime)s - %(levelname)s - %(funcName)s - %(message)s", "%Y-%m-%d %H:%M:%S"
+    # Create a detailed log format
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
     )
-    file_handler = logging.handlers.RotatingFileHandler(
-        log_file, maxBytes=5 * 1024 * 1024, backupCount=5, encoding='utf-8'
-    )
-    file_handler.setFormatter(file_formatter)
-    logger.addHandler(file_handler)
 
-    # Console handler: avec formatage coloré
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(CustomFormatter())
-    logger.addHandler(console_handler)
+    # Configure the file handler
+    file_handler = logging.FileHandler("logs/phishing_detector.log")
+    file_handler.setLevel(file_level)
+    file_handler.setFormatter(formatter)
 
-    logger.info("Logger configured successfully")
-    _logger = logger
-    return logger
+    # Configure the console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(root_level)
+    console_handler.setFormatter(formatter)
+
+    # Add the handlers to the logger
+    # Ajouter les handlers au logger
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(console_handler)
+
+    # Logger initialization
+    root_logger.info("Logging initialized")
+    if verbose:
+        root_logger.debug("Verbose mode enabled")
