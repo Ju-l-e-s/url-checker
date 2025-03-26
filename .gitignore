@@ -1,9 +1,11 @@
+env/
+venv/
+.venv/
+
 # Python cache files
 __pycache__/
 *.pyc
 
-venv/
-.venv/
 
 # Editor files
 .idea/
@@ -17,3 +19,6 @@ venv/
 
 # Log files
 *.log
+
+#JSON files
+*.json

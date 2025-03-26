@@ -14,10 +14,12 @@ def main():
     analyzer = URLAnalyzer()
 
     test_urls = [
-        "https://secure-paypal.com/verify-account?user=martin&password=password",
-        "https://secure-paypa1.com/",
-        "https://bit.ly/3abcxyz",
-        "https://google.com"
+        "http://tamanna800.github.io/amazon", # bad url, don't click on it
+        "https://drive.google.com/uc?export=download&id=1UnU9ydYXvBsgDAS_xzEWlzcaiV6O_QdT" # bad url, don't click on it
+        # "https://secure-paypal.com/verify-account?user=martin&password=password",
+        # "https://secure-paypa1.com/",
+        # "https://bit.ly/3abcxyz",
+        # "https://google.com"
     ]
 
     for url in test_urls:

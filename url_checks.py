@@ -3,6 +3,7 @@ import requests
 import tldextract
 import logging
 import functools
+import json
 from urllib.parse import urlparse, parse_qs
 from config import Config
 from logger_config import setup_logger
@@ -10,7 +11,8 @@ from logger_config import setup_logger
 
 def log_call(func):
     """
-    Decorator to log when a function is entered and exited, including its arguments and return value.
+    A simple decorator that preserves the function's __name__ for logging purposes.
+    It does not add additional logging.
 
     :param func: The function to decorate.
     :type func: function
@@ -20,38 +22,35 @@ def log_call(func):
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        self = args[0]  # Assumes 'self' is the first argument (i.e. a class instance)
-        self.logger.debug(
-            "Entering %s with args: %s, kwargs: %s",
-            func.__name__, args[1:], kwargs, extra={'real_func': func.__name__}, stacklevel=3
-        )
-        result = func(*args, **kwargs)
-        self.logger.debug(
-            "Exiting %s with result: %s",
-            func.__name__, result, extra={'real_func': func.__name__}, stacklevel=3
-        )
-        return result
+        return func(*args, **kwargs)
 
     return wrapper
+
+
+def normalize_url(url: str) -> str:
+    """
+    Normalizes a URL by stripping whitespace, converting to lowercase, and removing a trailing slash.
+
+    :param url: The URL to normalize.
+    :type url: str
+    :return: The normalized URL.
+    :rtype: str
+    """
+    return url.strip().lower().rstrip("/")
 
 
 class URLAnalyzer:
     """
     A class to perform phishing detection and URL analysis.
 
-    :param: None
-    :return: None
-    :rtype: None
+    In addition to standard checks (domain, subdomain, URL parameters, etc.),
+    this class verifies if the complete URL is present in the local bad URLs list defined in the configuration.
     """
 
     def __init__(self):
         """
-        Initializes the URLAnalyzer instance, loads configuration constants,
-        and sets up a dedicated logger instance.
-
-        :param: None
-        :return: None
-        :rtype: None
+        Initializes the URLAnalyzer instance, loads configuration constants, and sets up a dedicated logger instance.
+        Also loads the bad URLs list from the configuration.
         """
         self.logger = logging.getLogger(f"phishing_detector.{self.__class__.__name__}")
         config = Config()
@@ -61,17 +60,10 @@ class URLAnalyzer:
         self.suspicious_keys = config.SUSPICIOUS_KEYS
         self.shorteners = config.SHORTENERS
         self.suspicious_words = config.SUSPICIOUS_WORDS
+        self.bad_urls = config.BAD_URL  # List of complete bad URLs from config.py
 
     @log_call
     def check_domain(self, url: str) -> str:
-        """
-        Checks if the URL's domain is in the trusted domains list.
-
-        :param url: The URL to check.
-        :type url: str
-        :return: A message indicating whether the domain is trusted.
-        :rtype: str
-        """
         extracted = tldextract.extract(url)
         domain = f"{extracted.domain}.{extracted.suffix}"
         if domain in self.trusted_domains:
@@ -80,14 +72,6 @@ class URLAnalyzer:
 
     @log_call
     def check_subdomain(self, url: str) -> str:
-        """
-        Checks if the given URL has a suspicious subdomain that mimics a trusted domain.
-
-        :param url: The URL to check.
-        :type url: str
-        :return: A warning if the subdomain is suspicious, otherwise a confirmation message.
-        :rtype: str
-        """
         extracted = tldextract.extract(url)
         domain = f"{extracted.domain}.{extracted.suffix}"
         subdomain = extracted.subdomain
@@ -98,14 +82,6 @@ class URLAnalyzer:
 
     @log_call
     def check_url_params(self, url: str) -> str:
-        """
-        Analyzes the query parameters of the given URL to detect suspicious parameters.
-
-        :param url: The URL to analyze.
-        :type url: str
-        :return: A warning if suspicious or excessive parameters are found, otherwise a confirmation message.
-        :rtype: str
-        """
         parsed_url = urlparse(url)
         query_params = parse_qs(parsed_url.query)
         if len(query_params) > 3:
@@ -117,14 +93,6 @@ class URLAnalyzer:
 
     @log_call
     def check_shortened_url(self, url: str) -> str:
-        """
-        Checks if the given URL uses a known link shortener service.
-
-        :param url: The URL to check.
-        :type url: str
-        :return: A warning if the URL is shortened, otherwise a confirmation message.
-        :rtype: str
-        """
         extracted = tldextract.extract(url)
         domain = f"{extracted.domain}.{extracted.suffix}"
         if domain in self.shorteners:
@@ -133,28 +101,12 @@ class URLAnalyzer:
 
     @log_call
     def check_url_length(self, url: str) -> str:
-        """
-        Checks if the given URL is excessively long.
-
-        :param url: The URL to check.
-        :type url: str
-        :return: A warning if the URL is very long, otherwise a confirmation message.
-        :rtype: str
-        """
         if len(url) > 100:
             return f"⚠️ WARNING: The URL is very long ({len(url)} characters). It might be obfuscating something."
         return "✅ The URL length is normal."
 
     @log_call
     def check_suspicious_words(self, url: str) -> str:
-        """
-        Checks if the given URL contains suspicious words commonly used in phishing attempts.
-
-        :param url: The URL to analyze.
-        :type url: str
-        :return: A warning if suspicious words are detected, otherwise a confirmation message.
-        :rtype: str
-        """
         for word in self.suspicious_words:
             if re.search(rf"\b{word}\b", url, re.IGNORECASE):
                 return f"⚠️ WARNING: The URL contains the suspicious word '{word}'"
@@ -164,47 +116,54 @@ class URLAnalyzer:
     def check_url_safety(self, url: str) -> str:
         """
         Checks if the given URL is unsafe using the Google Safe Browsing API.
-
-        :param url: The URL to check.
-        :type url: str
-        :return: A warning if the URL is unsafe, otherwise a confirmation message.
-        :rtype: str
+        For testing purposes, the actual API call is commented out.
         """
-        payload = {
-            "client": {
-                "clientId": "phishing-detector",
-                "clientVersion": "1.0"
-            },
-            "threatInfo": {
-                "threatTypes": [
-                    "MALWARE",
-                    "SOCIAL_ENGINEERING",
-                    "UNWANTED_SOFTWARE",
-                    "POTENTIALLY_HARMFUL_APPLICATION"
-                ],
-                "platformTypes": ["ANY_PLATFORM"],
-                "threatEntryTypes": ["URL"],
-                "threatEntries": [{"url": url}]
-            }
-        }
-        response = requests.post(self.safe_browsing_url, json=payload)
-        if response.status_code == 200:
-            data = response.json()
-            if "matches" in data:
-                return f"⚠️ WARNING: The URL {url} is unsafe!"
-            return f"✅ The URL {url} is not in Google's threat list."
+        # --- BEGIN Google API Call (commented for testing) ---
+        # payload = {
+        #     "client": {
+        #         "clientId": "phishing-detector",
+        #         "clientVersion": "1.0"
+        #     },
+        #     "threatInfo": {
+        #         "threatTypes": [
+        #             "MALWARE",
+        #             "SOCIAL_ENGINEERING",
+        #             "UNWANTED_SOFTWARE",
+        #             "POTENTIALLY_HARMFUL_APPLICATION"
+        #         ],
+        #         "platformTypes": ["ANY_PLATFORM"],
+        #         "threatEntryTypes": ["URL"],
+        #         "threatEntries": [{"url": url}]
+        #     }
+        # }
+        # response = requests.post(self.safe_browsing_url, json=payload)
+        # if response.status_code == 200:
+        #     data = response.json()
+        #     if "matches" in data:
+        #         return f"⚠️ WARNING: The URL {url} is unsafe!"
+        #     return f"✅ The URL {url} is not in Google's threat list."
+        # else:
+        #     return f"❌ API Error: {response.text}"
+        # --- END Google API Call ---
+        return f"✅ Test mode: The URL {url} is assumed safe (Google API disabled)."
+
+    @log_call
+    def check_bad_urls(self, url: str) -> str:
+        """
+        Checks if the given complete URL is present in the local bad URLs list from the configuration.
+        The comparison is done after normalizing the URL (trimming, converting to lowercase, and removing trailing slashes).
+        """
+        normalized_url = normalize_url(url)
+        normalized_bad = [normalize_url(bad) for bad in self.bad_urls]
+        if normalized_url in normalized_bad:
+            return "⚠️ WARNING: The URL is found in the local bad URLs list."
         else:
-            return f"❌ API Error: {response.text}"
+            return "✅ The URL is not found in the local bad URLs list."
 
     def analyze_url(self, url: str) -> None:
         """
         Performs a detailed analysis of the given URL and logs a professional risk assessment,
-        including a final conclusion with the risk level.
-
-        :param url: The URL to analyze.
-        :type url: str
-        :return: None
-        :rtype: None
+        including the local bad URLs check.
         """
         separator = "=" * 80
         self.logger.info("\n%s\nStarting analysis for URL: %s\n%s", separator, url, separator)
@@ -218,19 +177,24 @@ class URLAnalyzer:
             self.check_shortened_url,
             self.check_url_length,
             self.check_suspicious_words,
-            self.check_url_safety
+            self.check_url_safety,
+            self.check_bad_urls
         ]
 
         for check in checks:
             result = check(url)
+            # Add the name of the function to the log message
+            log_message = f"{check.__name__} - {result}"
             if "⚠️ WARNING" in result or "❌" in result:
-                self.logger.warning(result)
+                self.logger.warning(log_message)
             else:
-                self.logger.info(result)
+                self.logger.info(log_message)
             if "⚠️ WARNING" in result:
-                if check in [self.check_domain, self.check_url_safety]:
+                if check.__name__ == "check_bad_urls":
+                    total_risk += 7
+                elif check.__name__ in ["check_domain", "check_url_safety"]:
                     total_risk += 3
-                elif check in [self.check_shortened_url, self.check_suspicious_words]:
+                elif check.__name__ in ["check_shortened_url", "check_suspicious_words"]:
                     total_risk += 2
                 else:
                     total_risk += 1
@@ -256,19 +220,15 @@ class URLAnalyzer:
             self.logger.warning(" - %s", detail)
         self.logger.info("%s\n", separator)
 
+        # Adding a newline before the conclusion for better visual separation.
         if risk_level in ["RISK_HIGH", "RISK_CRITICAL"]:
-            self.logger.warning("Conclusion: Analysis complete for URL: %s - %s", url, risk_msg)
+            self.logger.warning("\nConclusion: Analysis complete for URL: %s - %s", url, risk_msg)
         else:
-            self.logger.info("Conclusion: Analysis complete for URL: %s - %s", url, risk_msg)
+            self.logger.info("\nConclusion: Analysis complete for URL: %s - %s", url, risk_msg)
 
     def analyze_urls_from_file(self, filename: str) -> None:
         """
         Reads URLs from a file and analyzes each one.
-
-        :param filename: The name of the file containing URLs.
-        :type filename: str
-        :return: None
-        :rtype: None
         """
         try:
             with open(filename, "r") as file:
