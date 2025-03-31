@@ -9,7 +9,7 @@ import datetime
 def main():
     """
 
-    main function for the phishing-detector CLI tool that analyzes URLs for potential phishing attempts.
+    main function for the url-checker CLI tool that analyzes URLs for potential security attempts.
     It can analyze a single URL, a file containing URLs, or a test URL file.
 
     :param: None
@@ -17,13 +17,16 @@ def main():
     :rtype: None
     """
     parser = argparse.ArgumentParser(
-        description='Phishing URL Detector - Analyzes URLs for potential phishing attempts')
+        description='Malicious URL Detector - Analyzes URLs for potential security attempts')
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('-u', '--url', help='URL to analyze')
-    group.add_argument('-f', '--file', help='File containing URLs to analyze (one per line)')
-    group.add_argument('-t', '--test', action='store_true', help='Run analysis on test URLs')
+    group.add_argument(
+        '-f', '--file', help='File containing URLs to analyze (one per line)')
+    group.add_argument('-t', '--test', action='store_true',
+                       help='Run analysis on test URLs')
     parser.add_argument('-o', '--output', help='Output JSON file for results')
-    parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output')
+    parser.add_argument('-v', '--verbose', action='store_true',
+                        help='Enable verbose output')
     args = parser.parse_args()
 
     # Setup logger
@@ -34,7 +37,7 @@ def main():
     output_file = args.output
     if not output_file and (args.file or args.test):
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_file = f"phishing_analysis_{timestamp}.json"
+        output_file = f"./Analysis/urls_analysis_{timestamp}.json"
 
     # Argument-based analysis
     if args.url:

@@ -83,7 +83,7 @@ def aggregate_feeds() -> list:
     """
     Aggregates phishing URLs from multiple feeds and removes duplicates.
 
-    :return: A list of unique phishing URLs.
+    :return: A list of unique phishing/malicious URLs.
     :rtype: list
     """
     openphish_urls = fetch_openphish()
@@ -96,7 +96,7 @@ def aggregate_feeds() -> list:
     return unique_urls
 
 
-def update_json_file(new_urls: list, filename: str = "bad_urls.json") -> None:
+def update_json_file(new_urls: list, filename: str = "json_lists/bad_urls.json") -> None:
     """
     Updates the JSON file by merging new URLs with existing ones, removing duplicates,
     and saving the updated list along with a timestamp and count.
@@ -108,7 +108,7 @@ def update_json_file(new_urls: list, filename: str = "bad_urls.json") -> None:
     :return: None
     :rtype: None
     """
-    # Vérifier si le fichier existe déjà
+    # Check if the file exists
     if os.path.exists(filename):
         try:
             with open(filename, "r", encoding="utf-8") as f:
@@ -120,7 +120,7 @@ def update_json_file(new_urls: list, filename: str = "bad_urls.json") -> None:
     else:
         existing_urls = []
 
-    # Fusionner les anciennes et nouvelles URLs et supprimer les doublons
+    # Merge old and new URLs and remove duplicates
     combined_urls = list(set(existing_urls + new_urls))
 
     updated_data = {

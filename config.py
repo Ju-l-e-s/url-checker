@@ -63,7 +63,7 @@ def load_dict_from_file(filename: str, default: Dict[str, Any] = None) -> Dict[s
 
 class Config:
     """
-    Contains configuration constants for the phishing detector.
+    Contains configuration constants for the urls checker.
 
     The lists for trusted domains, suspicious keys, URL shorteners, suspicious words, and bad URLs
     are loaded from external JSON files (if available) to facilitate updates and maintainability.
@@ -78,40 +78,40 @@ class Config:
 
     # Charger les listes à partir des fichiers JSON
     TRUSTED_DOMAINS: List[str] = load_list_from_file(
-        "trusted_domains.json",
+        "json_lists/trusted_domains.json",
         ["paypal.com", "google.com", "amazon.com", "facebook.com"]
     )
 
     SUSPICIOUS_KEYS: List[str] = load_list_from_file(
-        "suspicious_keys.json",
+        "json_lists/suspicious_keys.json",
         ["password", "secure", "login", "verify", "auth", "token", "download"]
     )
 
     SHORTENERS: List[str] = load_list_from_file(
-        "shorteners.json",
+        "json_lists/json_lists/shorteners.json",
         ["bit.ly", "tinyurl.com", "t.co", "goo.gl", "is.gd", "shorte.st"]
     )
 
     SUSPICIOUS_WORDS: List[str] = load_list_from_file(
-        "suspicious_words.json",
+        "json_lists/suspicious_words.json",
         ["secure", "verify", "update", "account", "login", "bank", "confirm"]
     )
 
     SUSPICIOUS_TLDS: List[str] = load_list_from_file(
-        "suspicious_tlds.json",
+        "json_lists/suspicious_tlds.json",
         ["xyz", "top", "club", "online", "site", "website", "pw", "buzz", "icu"]
     )
 
     URL_SUSPICIOUS_PATTERNS: Dict[str, str] = load_dict_from_file(
-        "suspicious_url_patterns.json",
+        "json_lists/suspicious_url_patterns.json",
         {"ip_address": r"https?://\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"}
     )
 
-    BAD_URL: List[str] = load_list_from_file("bad_urls.json", [])
+    BAD_URL: List[str] = load_list_from_file("json_lists/bad_urls.json", [])
 
     # Risk coefficients for each type of verification
     RISK_COEFFICIENTS: Dict[str, int] = load_dict_from_file(
-        "risk_coefficients.json",
+        "json_lists/risk_coefficients.json",
         {
             "check_domain": 3,
             "check_subdomain": 2,
@@ -131,7 +131,7 @@ class Config:
 
     # Risk thresholds
     RISK_THRESHOLDS: Dict[str, Dict[str, Any]] = load_dict_from_file(
-        "risk_thresholds.json",
+        "json_lists/risk_thresholds.json",
         {
             "RISK_LOW": {"max": 2, "color": "🟢", "message": "Low Risk: The URL appears safe."},
             "RISK_MODERATE": {"max": 5, "color": "🟡",
@@ -139,6 +139,6 @@ class Config:
             "RISK_HIGH": {"max": 10, "color": "🟠",
                           "message": "High Risk: Several suspicious elements detected! Be very careful."},
             "RISK_CRITICAL": {"max": float('inf'), "color": "🔴",
-                              "message": "CRITICAL RISK: This URL is highly suspicious! Possible phishing attempt."}
+                              "message": "CRITICAL RISK: This URL is highly suspicious!"}
         }
     )

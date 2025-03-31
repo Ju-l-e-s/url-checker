@@ -8,9 +8,11 @@ import ssl
 import socket
 import datetime
 from urllib.parse import urlparse, parse_qs
-from difflib import SequenceMatcher
 from config import Config
 from typing import Dict, Tuple, List, Any
+import Levenshtein  # python-Levenshtein package
+import textdistance  # textdistance package
+from confusable_homoglyphs import confusables  # For Unicode homoglyph detection
 
 
 def log_call(func):
@@ -43,48 +45,35 @@ def normalize_url(url: str) -> str:
     return url.strip().lower().rstrip("/")
 
 
-def levenshtein_distance(s1: str, s2: str) -> int:
+def normalize_domain(domain: str) -> str:
     """
-    Calculate the Levenshtein distance (edit distance) between two strings.
+    Normalizes a domain name by replacing certain digits with visually similar letters.
+    For example: '0' -> 'o', '1' -> 'l', '3' -> 'e', etc.
 
-    :param s1: First string
-    :param s2: Second string
-    :return: The edit distance between s1 and s2
+    This helps detect typosquatting attacks that use digit substitution.
+
+    :param domain: The domain name to normalize
+    :type domain: str
+    :return: The normalized domain name
+    :rtype: str
     """
-    if len(s1) < len(s2):
-        return levenshtein_distance(s2, s1)
-
-    # len(s1) >= len(s2)
-    if len(s2) == 0:
-        return len(s1)
-
-    previous_row = range(len(s2) + 1)
-    for i, c1 in enumerate(s1):
-        current_row = [i + 1]
-        for j, c2 in enumerate(s2):
-            insertions = previous_row[j + 1] + 1
-            deletions = current_row[j] + 1
-            substitutions = previous_row[j] + (c1 != c2)
-            current_row.append(min(insertions, deletions, substitutions))
-        previous_row = current_row
-
-    return previous_row[-1]
-
-
-def similarity_ratio(s1: str, s2: str) -> float:
-    """
-    Calculate the similarity ratio between two strings using SequenceMatcher.
-
-    :param s1: First string
-    :param s2: Second string
-    :return: Similarity ratio between 0 and 1
-    """
-    return SequenceMatcher(None, s1, s2).ratio()
+    replacements = {
+        '0': 'o',
+        '1': 'l',
+        '3': 'e',
+        '5': 's',
+        '7': 't',
+        '8': 'b'
+    }
+    normalized = domain
+    for digit, letter in replacements.items():
+        normalized = normalized.replace(digit, letter)
+    return normalized
 
 
 class URLAnalyzer:
     """
-    A class to perform phishing detection and URL analysis.
+    A class to perform URL analysis.
 
     Analyzes URLs for potential phishing attempts using multiple detection methods:
     - Domain verification against trusted domains
@@ -108,7 +97,7 @@ class URLAnalyzer:
         Also loads the bad URLs list from the configuration.
         """
         self.logger = logging.getLogger(
-            f"phishing_detector.{self.__class__.__name__}")
+            f"url_analyzer.{self.__class__.__name__}")
         config = Config()
         self.api_key = config.API_KEY
         self.safe_browsing_url = config.SAFE_BROWSING_URL
@@ -137,7 +126,7 @@ class URLAnalyzer:
         subdomain = extracted.subdomain
 
         if domain in self.trusted_domains and subdomain:
-            # Vérification des sous-domaines suspects pour les domaines de confiance
+            # Verification of suspicious subdomains for trusted domains
             suspicious_subdomains = ["secure", "security", "login", "signin", "account",
                                      "verify", "validation", "update", "service", "support",
                                      "confirm", "banking", "payment", "alert", "info"]
@@ -147,12 +136,12 @@ class URLAnalyzer:
                     return (f"⚠️ WARNING: The URL uses a suspicious subdomain ({subdomain}). "
                             f"It may be trying to impersonate {domain}!")
 
-            # Vérification des sous-domaines excessivement longs
+            # Verification of excessively long subdomains
             if len(subdomain) > 30:
                 return (f"⚠️ WARNING: The subdomain ({subdomain}) is unusually long. "
                         f"This could be an attempt to hide malicious intent.")
 
-            # Vérification des sous-domaines avec des caractères inhabituels
+            # Verification of subdomains with unusual characters
             if re.search(r"[^a-zA-Z0-9\-\.]", subdomain):
                 return (f"⚠️ WARNING: The subdomain ({subdomain}) contains unusual characters. "
                         f"This could be an attempt to trick users.")
@@ -163,7 +152,7 @@ class URLAnalyzer:
     def check_tld(self, url: str) -> str:
         extracted = tldextract.extract(url)
         if extracted.suffix in self.suspicious_tlds:
-            return f"⚠️ WARNING: The TLD '{extracted.suffix}' is commonly used in phishing campaigns."
+            return f"⚠️ WARNING: The TLD '{extracted.suffix}' is commonly used in phishing/malicious campaigns."
         return f"✅ The TLD '{extracted.suffix}' is not in the suspicious list."
 
     @log_call
@@ -273,55 +262,51 @@ class URLAnalyzer:
     @log_call
     def check_typosquatting(self, url: str) -> str:
         """
-        Detects typosquatting attempts by comparing the domain
-        to a list of trusted domains, with special attention
-        to common character substitutions.
+        Detects typosquatting attempts by comparing the domain to trusted domains
+        using advanced homoglyph detection, character normalization, and similarity metrics.
         """
         extracted = tldextract.extract(url)
         domain_name = extracted.domain
+        normalized_domain = normalize_domain(domain_name)
 
-        # Dictionary of common substitutions used in typosquatting
-        common_substitutions = {
-            'o': '0',
-            'l': '1',
-            'i': '1',
-            'e': '3',
-            'a': '4',
-            's': '5',
-            'g': '9',
-            'b': '8',
-            't': '7'
-        }
+        # 1. Check for homoglyphs (Unicode confusables)
+        if confusables.is_dangerous(domain_name):
+            return f"⚠️ WARNING: The domain '{domain_name}' contains confusable Unicode characters. Possible homoglyph attack!"
 
-        # 1. Check for common substitutions
+        # 2. Check for numeric substitutions and similarity using normalized domains
         for trusted in self.trusted_domains:
             trusted_extract = tldextract.extract(trusted)
             trusted_domain = trusted_extract.domain
+            normalized_trusted = normalize_domain(trusted_domain)
 
-            # Check for character substitutions
-            for char, substitute in common_substitutions.items():
-                if char in trusted_domain:
-                    # Create a modified version of the trusted domain with the substitution
-                    modified_domain = trusted_domain.replace(char, substitute)
-                    # If this modified version matches the analyzed domain
-                    if modified_domain == domain_name:
-                        return f"⚠️ WARNING: The domain '{domain_name}' uses character substitution from '{trusted_domain}'. Likely typosquatting!"
+            # If normalized versions match but originals don't, we found a potential digit substitution
+            if normalized_domain == normalized_trusted and domain_name != trusted_domain:
+                return f"⚠️ WARNING: The domain '{domain_name}' uses digit substitution to mimic '{trusted_domain}'. Definitely typosquatting!"
 
-        # 2. Check for similarity and edit distance
-        for trusted in self.trusted_domains:
-            trusted_extract = tldextract.extract(trusted)
-            trusted_domain = trusted_extract.domain
+            # Using Levenshtein distance on both original and normalized domains
+            orig_distance = Levenshtein.distance(domain_name, trusted_domain)
+            norm_distance = Levenshtein.distance(normalized_domain, normalized_trusted)
 
-            # Calculate similarity between domains
-            similarity = similarity_ratio(domain_name, trusted_domain)
+            # If normalized domains are more similar than originals, this suggests digit substitution
+            if norm_distance < orig_distance:
+                norm_similarity = 1 - (norm_distance / max(len(normalized_domain), len(normalized_trusted)))
+                if norm_similarity > 0.75 and norm_distance <= 3:
+                    return f"⚠️ WARNING: The domain '{domain_name}' (normalized: '{normalized_domain}') looks very similar to '{trusted_domain}' (normalized: '{normalized_trusted}'). Likely typosquatting with digit substitution!"
 
-            # If the domain is very similar but not identical
-            if similarity > 0.75 and similarity < 1.0:
-                distance = levenshtein_distance(domain_name, trusted_domain)
+            # Standard similarity check on original domains
+            orig_similarity = 1 - (orig_distance / max(len(domain_name), len(trusted_domain)))
+            if orig_similarity > 0.75 and orig_similarity < 1.0 and orig_distance <= 3:
+                return f"⚠️ WARNING: The domain '{domain_name}' looks very similar to '{trusted_domain}' (Levenshtein similarity: {orig_similarity:.2f}). Possible typosquatting!"
 
-                # If the difference is 3 characters or less
-                if distance <= 3:
-                    return f"⚠️ WARNING: The domain '{domain_name}' looks very similar to trusted domain '{trusted_domain}'. Possible typosquatting!"
+            # Using Jaro-Winkler for better detection of transpositions
+            jaro_similarity = textdistance.jaro_winkler.normalized_similarity(domain_name, trusted_domain)
+            if jaro_similarity > 0.85 and jaro_similarity < 1.0:
+                return f"⚠️ WARNING: The domain '{domain_name}' has high Jaro-Winkler similarity with '{trusted_domain}' ({jaro_similarity:.2f}). Possible typosquatting!"
+
+            # Check Jaro-Winkler similarity on normalized domains too
+            norm_jaro = textdistance.jaro_winkler.normalized_similarity(normalized_domain, normalized_trusted)
+            if norm_jaro > 0.85 and norm_jaro < 1.0 and norm_jaro > jaro_similarity:
+                return f"⚠️ WARNING: The domain '{domain_name}' has high normalized Jaro-Winkler similarity with '{trusted_domain}' ({norm_jaro:.2f}). Possible typosquatting with digit substitution!"
 
         # 3. Check for additions/deletions (prefixes/suffixes)
         for trusted in self.trusted_domains:
@@ -330,17 +315,22 @@ class URLAnalyzer:
 
             # Check if the legitimate domain is contained in the suspect domain
             if trusted_domain in domain_name and trusted_domain != domain_name:
-                # Calculate the length of added characters
                 added_chars = len(domain_name) - len(trusted_domain)
                 if added_chars <= 3:
                     return f"⚠️ WARNING: The domain '{domain_name}' contains the trusted domain '{trusted_domain}' with {added_chars} additional characters. Possible typosquatting!"
 
             # Check if the suspect domain is contained in the legitimate domain
             elif domain_name in trusted_domain and trusted_domain != domain_name:
-                # Calculate the length of removed characters
                 removed_chars = len(trusted_domain) - len(domain_name)
                 if removed_chars <= 2:
                     return f"⚠️ WARNING: The domain '{domain_name}' is a shortened version of trusted domain '{trusted_domain}'. Possible typosquatting!"
+
+            # Also check normalized versions for containment
+            normalized_trusted = normalize_domain(trusted_domain)
+            if normalized_trusted in normalized_domain and normalized_trusted != normalized_domain:
+                added_chars = len(normalized_domain) - len(normalized_trusted)
+                if added_chars <= 3:
+                    return f"⚠️ WARNING: The normalized domain '{normalized_domain}' contains the trusted domain '{normalized_trusted}' with slight modifications. Possible typosquatting!"
 
         return "✅ No typosquatting detected."
 
@@ -364,7 +354,7 @@ class URLAnalyzer:
             with socket.create_connection((hostname, 443), timeout=5) as sock:
                 with context.wrap_socket(sock, server_hostname=hostname) as ssock:
                     cert = ssock.getpeercert()
-                    # Check if the certificate is valide
+                    # Check if the certificate is valid
                     if not cert:
                         return "⚠️ WARNING: Invalid SSL certificate!"
         except Exception as e:
@@ -397,8 +387,8 @@ class URLAnalyzer:
             if response.status_code in (301, 302, 303, 307, 308):
                 redirect_url = response.headers.get('Location', '')
                 if redirect_url:
-                    # On pourrait faire une analyse du redirect_url ici
-                    # ou simplement le signaler comme un risque potentiel
+                    #  analyze the redirect_url here
+                    # or simply report it as a potential risk
                     return f"⚠️ WARNING: The URL redirects to: {redirect_url}"
         except Exception as e:
             return f"⚠️ WARNING: Could not check redirects: {str(e)}"
@@ -408,7 +398,7 @@ class URLAnalyzer:
     def analyze_url(self, url: str) -> None:
         """
         Performs a detailed analysis of the given URL and logs a professional risk assessment,
-        including multiple security checks for comprehensive phishing detection.
+        including multiple security checks for comprehensive phishing/malicious detection.
         """
         separator = "=" * 80
         self.logger.info(
@@ -490,12 +480,12 @@ class URLAnalyzer:
             self.logger.warning(
                 " - Do not enter any personal information or credentials.")
             self.logger.warning(
-                " - Consider reporting this URL to phishing databases if confirmed malicious.")
+                " - Consider reporting this URL to phishing/malicious databases if confirmed malicious.")
         else:  # RISK_CRITICAL
             self.logger.warning(
-                " - DO NOT visit this URL! It is likely a phishing attempt.")
+                " - DO NOT visit this URL! It is likely a phishing/malicious attempt.")
             self.logger.warning(
-                " - Report this URL to phishing databases and security teams.")
+                " - Report this URL to phishing/malicious databases and security teams.")
             self.logger.warning(
                 " - If you've already visited it, scan your device for malware.")
 
