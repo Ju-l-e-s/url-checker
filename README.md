@@ -13,7 +13,6 @@ A Python command-line tool for analyzing URLs to detect potential security threa
 - Suspicious words detection
 - Known bad URLs database checking
 - Typosquatting detection
-- SSL certificate verification
 - Suspicious URL patterns matching
 - Comprehensive risk scoring system
 
