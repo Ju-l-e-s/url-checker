@@ -11,7 +11,6 @@ A Python command-line tool for analyzing URLs to detect potential security threa
 - Link shortener detection
 - URL length analysis
 - Suspicious words detection
-- Google Safe Browsing API integration (disabled in test mode)
 - Known bad URLs database checking
 - Typosquatting detection
 - SSL certificate verification
